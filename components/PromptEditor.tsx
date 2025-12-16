@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PromptData, ModelType } from '../types';
 import { Icons } from './Icon';
-import { extractVariables, fillTemplate, generateContent } from '../services/geminiService';
+import { extractVariables, fillTemplate } from '../services/geminiService';
 import { saveDraft, getDraft, removeDraft } from '../services/storageService';
-import ReactMarkdown from 'react-markdown';
 
 interface PromptEditorProps {
   initialData: PromptData;
@@ -32,9 +31,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const [prompt, setPrompt] = useState<PromptData>(startData);
   const [variables, setVariables] = useState<string[]>([]);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
-  const [testOutput, setTestOutput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'EDIT' | 'TEST'>('EDIT');
+  const [activeTab, setActiveTab] = useState<'EDIT' | 'PREVIEW'>('EDIT');
   const [showConfig, setShowConfig] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [tagsInput, setTagsInput] = useState(prompt.tags.join(', '));
@@ -55,7 +52,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     setPrompt(newData);
     setTagsInput(newData.tags.join(', '));
     setSaveStatus(newDraft ? 'DRAFT_SAVED' : 'SAVED');
-    setTestOutput('');
     isFirstRender.current = true;
   }, [initialData.id]); // Only reset if ID changes
 
@@ -109,26 +105,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     };
   }, [prompt]);
 
-  const handleRun = async () => {
-    setIsLoading(true);
-    setTestOutput('');
-    onMarkAsUsed(); // Track usage
-    try {
-      const filledUserPrompt = fillTemplate(prompt.template, variableValues);
-      const result = await generateContent(
-        prompt.systemInstruction, 
-        filledUserPrompt, 
-        prompt.config
-      );
-      setTestOutput(result);
-      setActiveTab('TEST'); 
-    } catch (error: any) {
-      setTestOutput(`Error: ${error.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleSave = () => {
     const cleanTags = tagsInput.split(/[,，]/).map(t => t.trim()).filter(Boolean);
     const updatedPrompt = { ...prompt, tags: cleanTags };
@@ -141,15 +117,18 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     setPrompt(updatedPrompt);
   };
 
-  const handleCopyFullPrompt = () => {
+  const getFullPreviewText = () => {
     const filledUserPrompt = fillTemplate(prompt.template, variableValues);
     const parts = [];
     if (prompt.systemInstruction) {
       parts.push(`--- System Instruction ---\n${prompt.systemInstruction}\n`);
     }
     parts.push(`--- User Prompt ---\n${filledUserPrompt}`);
-    
-    const fullText = parts.join('\n');
+    return parts.join('\n');
+  };
+
+  const handleCopyFullPrompt = () => {
+    const fullText = getFullPreviewText();
     navigator.clipboard.writeText(fullText);
     
     onMarkAsUsed(); // Track usage
@@ -235,21 +214,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           </div>
         </div>
         <div className="flex items-center gap-2">
-           <button 
-            onClick={handleCopyFullPrompt}
-            className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors relative group"
-            title="复制完整提示词 (包含系统指令与填充后的变量)"
-          >
-            {copyFeedback ? <Icons.Clipboard className="text-green-500" size={20} /> : <Icons.Copy size={20} />}
-             {copyFeedback && (
-              <span className="absolute top-full mt-2 left-1/2 -translate-x-1/2 text-[10px] bg-slate-800 text-white px-2 py-1 rounded whitespace-nowrap">
-                已复制
-              </span>
-            )}
-          </button>
-          
-          <div className="h-6 w-px bg-slate-200 mx-1"></div>
-
           <button 
             onClick={() => setShowHistory(true)}
             className={`p-2 rounded-lg transition-colors ${showHistory ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}
@@ -268,18 +232,15 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
 
           <div className="h-6 w-px bg-slate-200 mx-1"></div>
 
-          <button 
-            onClick={handleRun}
-            disabled={isLoading}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-white transition-all ${isLoading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 shadow-md hover:shadow-lg shadow-indigo-200'}`}
+           <button 
+            onClick={handleCopyFullPrompt}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium transition-all shadow-md hover:shadow-lg shadow-indigo-200 relative group"
+            title="复制完整提示词"
           >
-            {isLoading ? (
-               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Icons.Play size={18} />
-            )}
-            <span className="hidden sm:inline">运行测试</span>
+            {copyFeedback ? <Icons.Clipboard size={18} /> : <Icons.Copy size={18} />}
+            <span className="hidden sm:inline">{copyFeedback ? '已复制' : '复制提示词'}</span>
           </button>
+
           <button 
             onClick={handleSave}
             className={`flex items-center gap-2 px-4 py-2 border rounded-lg font-medium transition-colors ${
@@ -297,7 +258,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
       <div className="flex-1 overflow-hidden flex flex-col md:flex-row relative">
         
         {/* Editor Column */}
-        <div className={`flex-1 flex flex-col h-full overflow-y-auto border-r border-slate-200 bg-white ${activeTab === 'TEST' ? 'hidden md:flex' : 'flex'}`}>
+        <div className={`flex-1 flex flex-col h-full overflow-y-auto border-r border-slate-200 bg-white ${activeTab === 'PREVIEW' ? 'hidden md:flex' : 'flex'}`}>
           <div className="p-6 max-w-3xl mx-auto w-full space-y-6">
             
             {/* Model Config Panel (Collapsible) */}
@@ -403,7 +364,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           </div>
         </div>
 
-        {/* Test/Preview Column */}
+        {/* Preview Column */}
         <div className={`w-full md:w-[45%] lg:w-[40%] flex flex-col bg-slate-50 h-full overflow-hidden ${activeTab === 'EDIT' ? 'hidden md:flex' : 'flex'}`}>
           
           {/* Mobile Tabs */}
@@ -415,10 +376,10 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               编辑
             </button>
             <button 
-              onClick={() => setActiveTab('TEST')}
-              className={`flex-1 py-3 text-sm font-medium ${activeTab === 'TEST' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500'}`}
+              onClick={() => setActiveTab('PREVIEW')}
+              className={`flex-1 py-3 text-sm font-medium ${activeTab === 'PREVIEW' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500'}`}
             >
-              测试与结果
+              预览与变量
             </button>
           </div>
 
@@ -451,33 +412,15 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               </div>
             )}
 
-            {/* Output Area */}
+            {/* Preview Area */}
             <div className="flex flex-col flex-1 min-h-[300px]">
                <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center justify-between">
-                <span className="flex items-center gap-2"><Icons.Zap size={16} className="text-yellow-500"/> 运行结果</span>
-                {testOutput && (
-                   <button 
-                    onClick={() => navigator.clipboard.writeText(testOutput)}
-                    className="text-xs text-slate-400 hover:text-indigo-600 flex items-center gap-1"
-                   >
-                     <Icons.Copy size={12}/> 复制
-                   </button>
-                )}
+                <span className="flex items-center gap-2"><Icons.LayoutTemplate size={16} className="text-slate-500"/> 预览 (复制内容)</span>
               </h3>
-              <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm p-4 overflow-y-auto font-sans text-sm leading-relaxed prose prose-slate prose-sm max-w-none">
-                {isLoading ? (
-                  <div className="space-y-3 animate-pulse">
-                    <div className="h-4 bg-slate-100 rounded w-3/4"></div>
-                    <div className="h-4 bg-slate-100 rounded w-full"></div>
-                    <div className="h-4 bg-slate-100 rounded w-5/6"></div>
-                  </div>
-                ) : testOutput ? (
-                   <ReactMarkdown>{testOutput}</ReactMarkdown>
-                ) : (
-                  <div className="text-slate-400 italic text-center mt-10">
-                    点击右上角的 "运行测试" 查看 Gemini 的回复。
-                  </div>
-                )}
+              <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm p-4 overflow-y-auto font-mono text-sm leading-relaxed text-slate-700">
+                <div className="whitespace-pre-wrap">
+                  {getFullPreviewText()}
+                </div>
               </div>
             </div>
 
