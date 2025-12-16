@@ -18,7 +18,10 @@ import {
   Clipboard,
   Check,
   Clock,
-  Star
+  Star,
+  History,
+  RotateCcw,
+  GitFork
 } from 'lucide-react';
 
 export const Icons = {
@@ -40,5 +43,8 @@ export const Icons = {
   Clipboard,
   Check,
   Clock,
-  Star
+  Star,
+  History,
+  RotateCcw,
+  GitFork
 };

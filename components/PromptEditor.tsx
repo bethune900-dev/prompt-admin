@@ -15,6 +15,9 @@ interface PromptEditorProps {
 
 type SaveStatus = 'SAVED' | 'SAVING' | 'DRAFT_SAVED';
 
+// Simple ID generator for fork/copy
+const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+
 const PromptEditor: React.FC<PromptEditorProps> = ({ 
   initialData, 
   onSave, 
@@ -33,6 +36,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'EDIT' | 'TEST'>('EDIT');
   const [showConfig, setShowConfig] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [tagsInput, setTagsInput] = useState(prompt.tags.join(', '));
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(draft ? 'DRAFT_SAVED' : 'SAVED');
@@ -154,6 +158,40 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     setTimeout(() => setCopyFeedback(false), 2000);
   };
 
+  const handleRestoreVersion = (historyItem: Omit<PromptData, 'history'>) => {
+    if (confirm('确定要恢复到此版本吗？当前未保存的修改将作为新版本历史保存。')) {
+      // Restore keeps the current history array and current ID
+      const restoredPrompt: PromptData = {
+        ...historyItem,
+        id: prompt.id, // Ensure we keep the same ID
+        history: prompt.history, // Keep the history chain
+        isFavorite: prompt.isFavorite // Keep current favorite status
+      };
+      setPrompt(restoredPrompt);
+      setTagsInput(restoredPrompt.tags.join(', '));
+      setShowHistory(false);
+      // Trigger auto-save immediately to update draft
+      saveDraft(restoredPrompt);
+    }
+  };
+
+  const handleSaveAsNewVersion = (historyItem: Omit<PromptData, 'history'>) => {
+    if (confirm('确定要将此版本另存为新提示词吗？')) {
+      const newId = generateId();
+      const newPrompt: PromptData = {
+        ...historyItem,
+        id: newId,
+        title: `${historyItem.title} (副本)`,
+        history: [], // New prompt starts with clean history
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        isFavorite: false
+      };
+      onSave(newPrompt); // Save immediately
+      setShowHistory(false);
+    }
+  };
+
   const getStatusText = () => {
     switch(saveStatus) {
       case 'SAVING': return '保存中...';
@@ -164,7 +202,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="flex flex-col h-full bg-slate-50 relative">
       {/* Header */}
       <div className="h-16 border-b border-slate-200 bg-white px-4 md:px-6 flex items-center justify-between shrink-0 z-10">
         <div className="flex items-center gap-4">
@@ -188,7 +226,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
                 <Icons.Star size={18} fill={prompt.isFavorite ? "currentColor" : "none"} />
               </button>
             </div>
-            {/* Auto-save Status Indicator */}
             <span className={`text-[10px] ml-1 transition-colors ${
               saveStatus === 'SAVING' ? 'text-indigo-500' : 
               saveStatus === 'DRAFT_SAVED' ? 'text-amber-500' : 'text-slate-400'
@@ -210,7 +247,27 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
               </span>
             )}
           </button>
+          
           <div className="h-6 w-px bg-slate-200 mx-1"></div>
+
+          <button 
+            onClick={() => setShowHistory(true)}
+            className={`p-2 rounded-lg transition-colors ${showHistory ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}
+            title="版本历史"
+          >
+            <Icons.History size={20} />
+          </button>
+
+          <button 
+            onClick={() => setShowConfig(!showConfig)}
+            className={`p-2 rounded-lg transition-colors ${showConfig ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}
+            title="模型配置"
+          >
+            <Icons.Settings size={20} />
+          </button>
+
+          <div className="h-6 w-px bg-slate-200 mx-1"></div>
+
           <button 
             onClick={handleRun}
             disabled={isLoading}
@@ -233,12 +290,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           >
             <Icons.Save size={18} />
             <span className="hidden sm:inline">保存</span>
-          </button>
-          <button 
-            onClick={() => setShowConfig(!showConfig)}
-            className={`p-2 rounded-lg transition-colors ${showConfig ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}
-          >
-            <Icons.Settings size={20} />
           </button>
         </div>
       </div>
@@ -289,7 +340,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
                         <Icons.ChevronLeft size={14} className="-rotate-90" />
                       </div>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-1">手动输入或从右侧下拉框选择</p>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">温度 (Temperature): {prompt.config.temperature}</label>
@@ -434,6 +484,73 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           </div>
         </div>
       </div>
+
+      {/* History Modal/Drawer */}
+      {showHistory && (
+        <div className="absolute inset-0 z-50 bg-black/20 backdrop-blur-sm flex justify-end animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-white h-full shadow-2xl border-l border-slate-200 flex flex-col animate-in slide-in-from-right duration-300">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                <Icons.History size={20} className="text-indigo-600" />
+                版本历史
+              </h3>
+              <button 
+                onClick={() => setShowHistory(false)}
+                className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
+              >
+                <Icons.X size={20} />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30">
+              {(!prompt.history || prompt.history.length === 0) ? (
+                <div className="text-center py-10 text-slate-400">
+                  <Icons.History size={48} className="mx-auto mb-3 opacity-20" />
+                  <p>暂无历史版本</p>
+                  <p className="text-xs mt-1">每次保存都会生成一个新版本</p>
+                </div>
+              ) : (
+                prompt.history.map((version, index) => (
+                  <div key={index} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow group">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-700">
+                          {new Date(version.updatedAt).toLocaleString('zh-CN')}
+                        </div>
+                        <div className="text-xs text-slate-400 mt-0.5">
+                           版本 {prompt.history.length - index}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="text-xs text-slate-500 bg-slate-50 p-2 rounded border border-slate-100 mb-3 font-mono line-clamp-3">
+                      {version.template || "(空模板)"}
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => handleRestoreVersion(version)}
+                        className="flex-1 py-2 px-3 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
+                      >
+                        <Icons.RotateCcw size={14} />
+                        恢复此版本
+                      </button>
+                      <button 
+                         onClick={() => handleSaveAsNewVersion(version)}
+                         className="py-2 px-3 bg-slate-50 text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
+                         title="另存为新提示词"
+                      >
+                        <Icons.GitFork size={14} />
+                        另存为新副本
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
