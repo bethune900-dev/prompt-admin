@@ -2,24 +2,56 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Sidebar, { FilterType } from './components/Sidebar';
 import PromptList from './components/PromptList';
 import PromptEditor from './components/PromptEditor';
+import CloudSettings from './components/CloudSettings';
 import { PromptData, ViewState } from './types';
-import { getStoredPrompts, savePrompt, deletePrompt, saveAllPrompts } from './services/storageService';
+import { api, isCloudEnabled } from './services/supabase';
+import * as localStore from './services/storageService';
 import { DEFAULT_CONFIG } from './constants';
 
-// Simple UUID fallback if package not available in some environments
-const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+// Simple UUID fallback
+const generateId = () => crypto.randomUUID();
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('LIST');
-  const [prompts, setPrompts] = useState<PromptData[]>([]);
+  // Initialize from LocalStorage immediately for instant load
+  const [prompts, setPrompts] = useState<PromptData[]>(() => localStore.getStoredPrompts());
   const [selectedPrompt, setSelectedPrompt] = useState<PromptData | null>(null);
   const [currentFilter, setCurrentFilter] = useState<FilterType>('ALL');
   const [selectedTag, setSelectedTag] = useState<string>('');
+  
+  const [showCloudSettings, setShowCloudSettings] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  // Load prompts on mount
+  // Sync Logic: If Cloud is enabled, try to download data on mount
   useEffect(() => {
-    setPrompts(getStoredPrompts());
+    if (isCloudEnabled) {
+      setIsSyncing(true);
+      api.downloadData().then(cloudData => {
+        if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
+          // In "Just Me" mode, we trust the cloud data if it exists.
+          // You could add logic here to compare 'updatedAt' timestamps if needed.
+          // For now, cloud sync overwrites local on startup to ensure consistency across devices.
+          setPrompts(cloudData);
+          localStore.saveAllPrompts(cloudData);
+        }
+        setIsSyncing(false);
+      });
+    }
   }, []);
+
+  // Centralized Data Update Logic
+  const updatePromptsState = (newPrompts: PromptData[]) => {
+    // 1. Update UI State
+    setPrompts(newPrompts);
+    
+    // 2. Persist to Local Storage (Source of Truth for offline)
+    localStore.saveAllPrompts(newPrompts);
+
+    // 3. Sync to Cloud (if enabled)
+    if (isCloudEnabled) {
+      api.uploadData(newPrompts);
+    }
+  };
 
   const handleCreatePrompt = () => {
     const now = Date.now();
@@ -45,39 +77,45 @@ const App: React.FC = () => {
     setView('EDITOR');
   };
 
-  const handleSavePrompt = (updatedPrompt: PromptData) => {
+  const handleSavePrompt = async (updatedPrompt: PromptData) => {
     if (!updatedPrompt.title.trim()) {
       updatedPrompt.title = '未命名提示词';
     }
-    savePrompt(updatedPrompt);
-    const allPrompts = getStoredPrompts();
-    setPrompts(allPrompts);
+
+    const newPrompts = [...prompts];
+    const index = newPrompts.findIndex(p => p.id === updatedPrompt.id);
     
-    const savedPrompt = allPrompts.find(p => p.id === updatedPrompt.id);
-    if (savedPrompt) {
-      setSelectedPrompt(savedPrompt);
+    if (index >= 0) {
+      newPrompts[index] = updatedPrompt;
+    } else {
+      newPrompts.unshift(updatedPrompt);
     }
+
+    if (selectedPrompt?.id === updatedPrompt.id) {
+      setSelectedPrompt(updatedPrompt);
+    }
+
+    updatePromptsState(newPrompts);
   };
 
-  const handleToggleFavorite = (prompt: PromptData) => {
+  const handleToggleFavorite = async (prompt: PromptData) => {
     const updated = { ...prompt, isFavorite: !prompt.isFavorite };
     handleSavePrompt(updated);
   };
 
-  const handleMarkAsUsed = (prompt: PromptData) => {
+  const handleMarkAsUsed = async (prompt: PromptData) => {
     const updated = { ...prompt, lastUsedAt: Date.now() };
-    // This will trigger a save and re-render
     handleSavePrompt(updated);
   };
 
-  const handleDeletePrompt = (id: string) => {
+  const handleDeletePrompt = async (id: string) => {
     if (confirm('确定要删除这个提示词吗？此操作无法撤销。')) {
-      deletePrompt(id);
-      setPrompts(getStoredPrompts());
+      const newPrompts = prompts.filter(p => p.id !== id);
       if (selectedPrompt?.id === id) {
         setView('LIST');
         setSelectedPrompt(null);
       }
+      updatePromptsState(newPrompts);
     }
   };
 
@@ -102,7 +140,7 @@ const App: React.FC = () => {
     
     const link = document.createElement('a');
     link.href = url;
-    link.download = `promptmaster_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `promptmaster_${isCloudEnabled ? 'cloud' : 'local'}_backup_${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -110,7 +148,7 @@ const App: React.FC = () => {
   };
 
   const handleImport = async (file: File) => {
-    if (!confirm('导入将合并现有数据。如果 ID 冲突，将覆盖现有提示词。继续吗？')) {
+    if (!confirm('导入将覆盖现有数据。继续吗？')) {
       return;
     }
 
@@ -123,25 +161,11 @@ const App: React.FC = () => {
         return;
       }
 
-      // Merge strategy
-      const promptMap = new Map<string, PromptData>();
-      prompts.forEach(p => promptMap.set(p.id, p));
+      // Ensure basic validity
+      const validPrompts = importedPrompts.filter(p => p.id && p.template);
       
-      importedPrompts.forEach((p: any) => {
-        if (p.id && p.title && p.template) {
-          if (!p.createdAt) p.createdAt = p.updatedAt || Date.now();
-          if (!p.history) p.history = [];
-          if (typeof p.isFavorite !== 'boolean') p.isFavorite = false;
-          promptMap.set(p.id, p as PromptData);
-        }
-      });
-
-      const mergedPrompts = Array.from(promptMap.values());
-      mergedPrompts.sort((a, b) => b.updatedAt - a.updatedAt);
-
-      saveAllPrompts(mergedPrompts);
-      setPrompts(mergedPrompts);
-      alert(`成功导入 ${importedPrompts.length} 个提示词！`);
+      updatePromptsState(validPrompts);
+      alert(`成功导入 ${validPrompts.length} 个提示词！`);
     } catch (error) {
       console.error('Import failed', error);
       alert('导入失败：文件无法解析或格式不正确。');
@@ -155,7 +179,6 @@ const App: React.FC = () => {
         tagCounts[tag] = (tagCounts[tag] || 0) + 1;
       });
     });
-    // Return tags sorted by frequency (descending)
     return Object.keys(tagCounts).sort((a, b) => tagCounts[b] - tagCounts[a]);
   }, [prompts]);
 
@@ -164,7 +187,7 @@ const App: React.FC = () => {
     if (currentFilter === 'FAVORITES') {
       filtered = prompts.filter(p => p.isFavorite);
     } else if (currentFilter === 'RECENT') {
-      filtered = prompts.filter(p => p.lastUsedAt).sort((a, b) => (b.lastUsedAt || 0) - (a.lastUsedAt || 0));
+      filtered = [...prompts].sort((a, b) => (b.lastUsedAt || 0) - (a.lastUsedAt || 0));
     } else if (currentFilter === 'TAG' && selectedTag) {
       filtered = prompts.filter(p => p.tags.includes(selectedTag));
     }
@@ -192,10 +215,20 @@ const App: React.FC = () => {
         tags={allTags}
         onExport={handleExport}
         onImport={handleImport}
+        onOpenCloudSettings={() => setShowCloudSettings(true)}
         className="shrink-0 z-20"
       />
       
       <main className="flex-1 h-full overflow-hidden relative">
+        {isSyncing && prompts.length === 0 && (
+           <div className="absolute inset-0 z-50 bg-white/50 flex items-center justify-center">
+             <div className="flex flex-col items-center gap-2">
+               <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+               <span className="text-xs text-indigo-600 font-medium">同步云端数据...</span>
+             </div>
+           </div>
+        )}
+
         {view === 'LIST' && (
           <PromptList 
             prompts={filteredPrompts}
@@ -215,6 +248,10 @@ const App: React.FC = () => {
             onToggleFavorite={() => handleToggleFavorite(selectedPrompt)}
             onMarkAsUsed={() => handleMarkAsUsed(selectedPrompt)}
           />
+        )}
+
+        {showCloudSettings && (
+          <CloudSettings onClose={() => setShowCloudSettings(false)} />
         )}
       </main>
     </div>

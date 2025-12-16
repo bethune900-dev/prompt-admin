@@ -21,7 +21,10 @@ import {
   Star,
   History,
   RotateCcw,
-  GitFork
+  GitFork,
+  Cloud,
+  CloudOff,
+  Database
 } from 'lucide-react';
 
 export const Icons = {
@@ -46,5 +49,8 @@ export const Icons = {
   Star,
   History,
   RotateCcw,
-  GitFork
+  GitFork,
+  Cloud,
+  CloudOff,
+  Database
 };
