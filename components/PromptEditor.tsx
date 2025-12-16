@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PromptData, ModelType } from '../types';
 import { Icons } from './Icon';
 import { extractVariables, fillTemplate, generateContent } from '../services/geminiService';
+import { saveDraft, getDraft, removeDraft } from '../services/storageService';
 import ReactMarkdown from 'react-markdown';
 
 interface PromptEditorProps {
@@ -12,6 +13,8 @@ interface PromptEditorProps {
   onMarkAsUsed: () => void;
 }
 
+type SaveStatus = 'SAVED' | 'SAVING' | 'DRAFT_SAVED';
+
 const PromptEditor: React.FC<PromptEditorProps> = ({ 
   initialData, 
   onSave, 
@@ -19,7 +22,11 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   onToggleFavorite,
   onMarkAsUsed
 }) => {
-  const [prompt, setPrompt] = useState<PromptData>(initialData);
+  // Check for draft immediately
+  const draft = getDraft(initialData.id);
+  const startData = draft || initialData;
+
+  const [prompt, setPrompt] = useState<PromptData>(startData);
   const [variables, setVariables] = useState<string[]>([]);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [testOutput, setTestOutput] = useState('');
@@ -28,18 +35,42 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const [showConfig, setShowConfig] = useState(false);
   const [tagsInput, setTagsInput] = useState(prompt.tags.join(', '));
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>(draft ? 'DRAFT_SAVED' : 'SAVED');
+  
+  // Ref to track if it's the first render to avoid initial save trigger
+  const isFirstRender = useRef(true);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync internal state if initialData changes (e.g. favorite toggle from parent)
+  // Update internal state when props change (switching prompts)
   useEffect(() => {
-    setPrompt(initialData);
-    setTagsInput(initialData.tags.join(', '));
-  }, [initialData]);
+    // When initialData changes (e.g. user selected a different prompt), 
+    // we need to reset everything and check for that new prompt's draft.
+    const newDraft = getDraft(initialData.id);
+    const newData = newDraft || initialData;
+    
+    setPrompt(newData);
+    setTagsInput(newData.tags.join(', '));
+    setSaveStatus(newDraft ? 'DRAFT_SAVED' : 'SAVED');
+    setTestOutput('');
+    isFirstRender.current = true;
+  }, [initialData.id]); // Only reset if ID changes
+
+  // Also sync non-content properties if they change externally (like favorite status)
+  // but WITHOUT overwriting local edits to content
+  useEffect(() => {
+    if (initialData.id === prompt.id) {
+       setPrompt(prev => ({
+         ...prev,
+         isFavorite: initialData.isFavorite,
+         // We don't sync other fields to avoid overwriting user's unsaved work
+       }));
+    }
+  }, [initialData.isFavorite]);
 
   // Extract variables when template changes
   useEffect(() => {
     const vars = extractVariables(prompt.template);
     setVariables(vars);
-    // Initialize values for new vars without deleting old ones
     setVariableValues(prev => {
       const next = { ...prev };
       vars.forEach(v => {
@@ -48,6 +79,31 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
       return next;
     });
   }, [prompt.template]);
+
+  // Auto-save logic
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    setSaveStatus('SAVING');
+    
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      saveDraft(prompt);
+      setSaveStatus('DRAFT_SAVED');
+    }, 1000); // 1 second debounce
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [prompt]);
 
   const handleRun = async () => {
     setIsLoading(true);
@@ -61,7 +117,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
         prompt.config
       );
       setTestOutput(result);
-      setActiveTab('TEST'); // Switch to test view to see result on mobile/small screens
+      setActiveTab('TEST'); 
     } catch (error: any) {
       setTestOutput(`Error: ${error.message}`);
     } finally {
@@ -71,7 +127,14 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
 
   const handleSave = () => {
     const cleanTags = tagsInput.split(/[,，]/).map(t => t.trim()).filter(Boolean);
-    onSave({ ...prompt, tags: cleanTags });
+    const updatedPrompt = { ...prompt, tags: cleanTags };
+    
+    onSave(updatedPrompt); // Persist to main storage
+    removeDraft(updatedPrompt.id); // Clear draft
+    setSaveStatus('SAVED');
+    
+    // Also update local state to match exactly what was saved
+    setPrompt(updatedPrompt);
   };
 
   const handleCopyFullPrompt = () => {
@@ -89,6 +152,15 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     
     setCopyFeedback(true);
     setTimeout(() => setCopyFeedback(false), 2000);
+  };
+
+  const getStatusText = () => {
+    switch(saveStatus) {
+      case 'SAVING': return '保存中...';
+      case 'DRAFT_SAVED': return '草稿已保存';
+      case 'SAVED': return '已保存';
+      default: return '';
+    }
   };
 
   return (
@@ -116,6 +188,13 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
                 <Icons.Star size={18} fill={prompt.isFavorite ? "currentColor" : "none"} />
               </button>
             </div>
+            {/* Auto-save Status Indicator */}
+            <span className={`text-[10px] ml-1 transition-colors ${
+              saveStatus === 'SAVING' ? 'text-indigo-500' : 
+              saveStatus === 'DRAFT_SAVED' ? 'text-amber-500' : 'text-slate-400'
+            }`}>
+              {getStatusText()}
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -146,7 +225,11 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
           </button>
           <button 
             onClick={handleSave}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg font-medium transition-colors"
+            className={`flex items-center gap-2 px-4 py-2 border rounded-lg font-medium transition-colors ${
+              saveStatus === 'DRAFT_SAVED' 
+                ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100' 
+                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+            }`}
           >
             <Icons.Save size={18} />
             <span className="hidden sm:inline">保存</span>
@@ -195,14 +278,13 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
                         value=""
                         className="w-8 text-sm p-2 border border-slate-200 rounded-lg bg-slate-50 focus:ring-2 focus:ring-indigo-500 outline-none text-transparent"
                         title="选择预设模型"
-                        style={{ backgroundImage: 'none' }} // Hide default arrow if we want to custom style, but keeping it simple for now implies relying on standard select behavior with an icon overlay or just standard select.
+                        style={{ backgroundImage: 'none' }} 
                       >
                         <option value="" disabled>Presets</option>
                         <option value={ModelType.FLASH}>Gemini 2.5 Flash</option>
                         <option value={ModelType.PRO}>Gemini 3.0 Pro</option>
                         <option value="gemini-2.0-flash-thinking-exp-1219">Thinking (Exp)</option>
                       </select>
-                      {/* Visual Indicator for the select box (since text is transparent or hidden) - actually standard select arrow is fine, but let's make it clearer */}
                       <div className="pointer-events-none absolute ml-[calc(100%-2.5rem)] mt-2.5 text-slate-400">
                         <Icons.ChevronLeft size={14} className="-rotate-90" />
                       </div>

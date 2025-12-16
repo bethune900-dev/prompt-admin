@@ -2,6 +2,7 @@ import { PromptData } from '../types';
 import { INITIAL_PROMPTS } from '../constants';
 
 const STORAGE_KEY = 'promptmaster_prompts_v1';
+const DRAFT_PREFIX = 'promptmaster_draft_';
 
 export const getStoredPrompts = (): PromptData[] => {
   try {
@@ -79,9 +80,34 @@ export const deletePrompt = (id: string): void => {
   const prompts = getStoredPrompts();
   const newPrompts = prompts.filter(p => p.id !== id);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrompts));
+  // Also remove any draft associated with this ID
+  removeDraft(id);
 };
 
 // New function to overwrite/merge all prompts (for Import)
 export const saveAllPrompts = (prompts: PromptData[]): void => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(prompts));
+};
+
+// --- Draft Handling ---
+
+export const saveDraft = (prompt: PromptData): void => {
+  try {
+    localStorage.setItem(DRAFT_PREFIX + prompt.id, JSON.stringify(prompt));
+  } catch (e) {
+    console.error("Failed to save draft", e);
+  }
+};
+
+export const getDraft = (id: string): PromptData | null => {
+  try {
+    const stored = localStorage.getItem(DRAFT_PREFIX + id);
+    return stored ? JSON.parse(stored) : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+export const removeDraft = (id: string): void => {
+  localStorage.removeItem(DRAFT_PREFIX + id);
 };
