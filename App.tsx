@@ -29,8 +29,6 @@ const App: React.FC = () => {
       api.downloadData().then(cloudData => {
         if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
           // In "Just Me" mode, we trust the cloud data if it exists.
-          // You could add logic here to compare 'updatedAt' timestamps if needed.
-          // For now, cloud sync overwrites local on startup to ensure consistency across devices.
           setPrompts(cloudData);
           localStore.saveAllPrompts(cloudData);
         }
@@ -77,6 +75,7 @@ const App: React.FC = () => {
     setView('EDITOR');
   };
 
+  // Generic save handler (Add/Update)
   const handleSavePrompt = async (updatedPrompt: PromptData) => {
     if (!updatedPrompt.title.trim()) {
       updatedPrompt.title = '未命名提示词';
@@ -86,15 +85,56 @@ const App: React.FC = () => {
     const index = newPrompts.findIndex(p => p.id === updatedPrompt.id);
     
     if (index >= 0) {
-      newPrompts[index] = updatedPrompt;
-    } else {
-      newPrompts.unshift(updatedPrompt);
-    }
+      // Existing prompt: Generate History Snapshot logic
+      const existingPrompt = newPrompts[index];
+      
+      // Create a snapshot of the current version before updating
+      // We exclude 'history' from the snapshot to avoid recursion
+      const { history: _ignored, ...snapshot } = existingPrompt;
+      
+      // Add snapshot to the FRONT of history, keep max 20
+      const newHistory = [snapshot, ...(existingPrompt.history || [])].slice(0, 20);
 
-    if (selectedPrompt?.id === updatedPrompt.id) {
+      const promptToSave = {
+        ...updatedPrompt,
+        history: newHistory,
+        updatedAt: Date.now()
+      };
+
+      newPrompts[index] = promptToSave;
+
+      if (selectedPrompt?.id === updatedPrompt.id) {
+        setSelectedPrompt(promptToSave);
+      }
+    } else {
+      // New prompt
+      newPrompts.unshift(updatedPrompt);
+      // Auto-select the new prompt
       setSelectedPrompt(updatedPrompt);
     }
 
+    updatePromptsState(newPrompts);
+  };
+
+  // Duplicate entire prompt (Card Copy)
+  const handleDuplicatePrompt = (prompt: PromptData) => {
+    const newId = generateId();
+    const now = Date.now();
+    
+    const newPrompt: PromptData = {
+      ...prompt,
+      id: newId,
+      title: `${prompt.title} (副本)`,
+      updatedAt: now,
+      createdAt: now,
+      history: [], // Reset history for the copy
+      isFavorite: false, // Reset favorite
+      lastUsedAt: undefined,
+      tags: [...prompt.tags], // Shallow copy tags
+      config: { ...prompt.config } // Shallow copy config
+    };
+
+    const newPrompts = [newPrompt, ...prompts];
     updatePromptsState(newPrompts);
   };
 
@@ -237,11 +277,13 @@ const App: React.FC = () => {
             onDeletePrompt={(id, e) => handleDeletePrompt(id)}
             onToggleFavorite={handleToggleFavorite}
             onMarkAsUsed={handleMarkAsUsed}
+            onDuplicatePrompt={handleDuplicatePrompt}
           />
         )}
         
         {view === 'EDITOR' && selectedPrompt && (
           <PromptEditor 
+            key={`${selectedPrompt.id}_${selectedPrompt.updatedAt}`}
             initialData={selectedPrompt} 
             onSave={handleSavePrompt}
             onBack={handleGoHome}

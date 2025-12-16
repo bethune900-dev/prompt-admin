@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { Icons } from './Icon';
 import { isCloudEnabled } from '../services/supabase';
 
@@ -30,6 +30,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   className 
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isTagsExpanded, setIsTagsExpanded] = useState(false);
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -79,7 +80,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
         <div className="hidden md:flex flex-col">
           <span className="font-bold text-lg tracking-wide leading-none">灵感提示词</span>
-          <span className="text-[10px] text-slate-400 font-mono mt-1">
+          <span className="text-slate-400 font-mono mt-1 text-[10px]">
             {isCloudEnabled ? 'CLOUD SYNC' : 'LOCAL MODE'}
           </span>
         </div>
@@ -104,25 +105,40 @@ const Sidebar: React.FC<SidebarProps> = ({
         {tags.length > 0 && (
           <>
             <div className="h-px bg-slate-800 mx-4 my-3"></div>
-            <div className="px-4 mb-1 hidden md:block text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              标签分组
-            </div>
-            <div className="flex flex-col gap-0.5">
-              {tags.map(tag => (
-                <button
-                  key={tag}
-                  onClick={() => handleTagClick(tag)}
-                  className={`mx-2 px-3 py-2 md:px-4 flex items-center gap-3 rounded-md transition-colors text-sm ${
-                    currentFilter === 'TAG' && currentTag === tag
-                      ? 'bg-slate-800 text-indigo-400'
-                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                  }`}
-                >
-                  <span className="text-slate-600">#</span>
-                  <span className="hidden md:block truncate">{tag}</span>
-                </button>
-              ))}
-            </div>
+            
+            <button 
+              onClick={() => setIsTagsExpanded(!isTagsExpanded)}
+              className="mx-2 px-3 py-2 md:px-4 flex items-center justify-center md:justify-between group rounded-md hover:bg-slate-800 transition-colors"
+              title="切换标签分组"
+            >
+               <div className="hidden md:block text-xs font-semibold text-slate-500 uppercase tracking-wider group-hover:text-slate-300">
+                  标签分组
+               </div>
+               {/* Desktop Icon */}
+               <Icons.ChevronDown size={14} className={`hidden md:block text-slate-500 transition-transform duration-200 ${isTagsExpanded ? '' : '-rotate-90'}`} />
+               
+               {/* Mobile Icon */}
+               <Icons.Hash size={16} className={`md:hidden text-slate-500 ${isTagsExpanded ? 'text-indigo-400' : ''}`} />
+            </button>
+
+            {isTagsExpanded && (
+              <div className="flex flex-col gap-0.5 animate-in slide-in-from-top-1 duration-200">
+                {tags.map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => handleTagClick(tag)}
+                    className={`mx-2 px-3 py-2 md:px-4 flex items-center gap-3 rounded-md transition-colors text-sm ${
+                      currentFilter === 'TAG' && currentTag === tag
+                        ? 'bg-slate-800 text-indigo-400'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <span className="text-slate-600">#</span>
+                    <span className="hidden md:block truncate">{tag}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>

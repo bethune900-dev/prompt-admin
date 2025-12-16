@@ -9,6 +9,7 @@ interface PromptListProps {
   onDeletePrompt: (id: string, e: React.MouseEvent) => void;
   onToggleFavorite: (prompt: PromptData) => void;
   onMarkAsUsed: (prompt: PromptData) => void;
+  onDuplicatePrompt: (prompt: PromptData) => void;
 }
 
 const PromptList: React.FC<PromptListProps> = ({ 
@@ -17,7 +18,8 @@ const PromptList: React.FC<PromptListProps> = ({
   onSelectPrompt, 
   onDeletePrompt,
   onToggleFavorite,
-  onMarkAsUsed
+  onMarkAsUsed,
+  onDuplicatePrompt
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -27,7 +29,7 @@ const PromptList: React.FC<PromptListProps> = ({
     p.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const handleCopy = (e: React.MouseEvent, prompt: PromptData) => {
+  const handleCopyText = (e: React.MouseEvent, prompt: PromptData) => {
     e.stopPropagation();
     
     const parts = [];
@@ -43,6 +45,11 @@ const PromptList: React.FC<PromptListProps> = ({
 
     setCopiedId(prompt.id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleDuplicate = (e: React.MouseEvent, prompt: PromptData) => {
+    e.stopPropagation();
+    onDuplicatePrompt(prompt);
   };
 
   const handleFavoriteClick = (e: React.MouseEvent, prompt: PromptData) => {
@@ -107,12 +114,21 @@ const PromptList: React.FC<PromptListProps> = ({
 
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button 
-                          onClick={(e) => handleCopy(e, prompt)}
+                          onClick={(e) => handleDuplicate(e, prompt)}
                           className="text-slate-400 hover:text-indigo-600 hover:bg-slate-100 p-1.5 rounded-md transition-colors"
-                          title="复制并标记为已使用"
+                          title="创建副本"
+                        >
+                          <Icons.GitFork size={16} />
+                        </button>
+
+                        <button 
+                          onClick={(e) => handleCopyText(e, prompt)}
+                          className="text-slate-400 hover:text-indigo-600 hover:bg-slate-100 p-1.5 rounded-md transition-colors"
+                          title="复制文本"
                         >
                           {copiedId === prompt.id ? <Icons.Check size={16} className="text-green-500"/> : <Icons.Copy size={16} />}
                         </button>
+                        
                         <button 
                           onClick={(e) => { e.stopPropagation(); onDeletePrompt(prompt.id, e); }}
                           className="text-slate-400 hover:text-red-500 hover:bg-slate-100 p-1.5 rounded-md transition-colors"

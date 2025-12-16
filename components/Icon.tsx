@@ -6,7 +6,9 @@ import {
   Trash2, 
   Save, 
   Play, 
-  ChevronLeft, 
+  ChevronLeft,
+  ChevronDown,
+  ChevronRight, 
   Copy,
   Zap,
   LayoutTemplate,
@@ -24,7 +26,8 @@ import {
   GitFork,
   Cloud,
   CloudOff,
-  Database
+  Database,
+  Hash
 } from 'lucide-react';
 
 export const Icons = {
@@ -35,6 +38,8 @@ export const Icons = {
   Save,
   Play,
   ChevronLeft,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Zap,
   LayoutTemplate,
@@ -52,5 +57,6 @@ export const Icons = {
   GitFork,
   Cloud,
   CloudOff,
-  Database
+  Database,
+  Hash
 };

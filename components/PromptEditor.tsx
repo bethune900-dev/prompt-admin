@@ -3,6 +3,7 @@ import { PromptData, ModelType } from '../types';
 import { Icons } from './Icon';
 import { extractVariables, fillTemplate } from '../services/geminiService';
 import { saveDraft, getDraft, removeDraft } from '../services/storageService';
+import { DEFAULT_CONFIG } from '../constants';
 
 interface PromptEditorProps {
   initialData: PromptData;
@@ -14,9 +15,6 @@ interface PromptEditorProps {
 
 type SaveStatus = 'SAVED' | 'SAVING' | 'DRAFT_SAVED';
 
-// Simple ID generator for fork/copy
-const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
-
 const PromptEditor: React.FC<PromptEditorProps> = ({ 
   initialData, 
   onSave, 
@@ -26,7 +24,10 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
 }) => {
   // Check for draft immediately
   const draft = getDraft(initialData.id);
-  const startData = draft || initialData;
+  
+  // Decide what data to show:
+  // Since we force remount on updates via key, if initialData is newer than draft, use initialData.
+  const startData = (draft && draft.updatedAt > initialData.updatedAt) ? draft : initialData;
 
   const [prompt, setPrompt] = useState<PromptData>(startData);
   const [variables, setVariables] = useState<string[]>([]);
@@ -36,36 +37,14 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const [showHistory, setShowHistory] = useState(false);
   const [tagsInput, setTagsInput] = useState(prompt.tags.join(', '));
   const [copyFeedback, setCopyFeedback] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>(draft ? 'DRAFT_SAVED' : 'SAVED');
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>(
+    (draft && draft.updatedAt > initialData.updatedAt) ? 'DRAFT_SAVED' : 'SAVED'
+  );
   
-  // Ref to track if it's the first render to avoid initial save trigger
+  const [historyCopyFeedbackId, setHistoryCopyFeedbackId] = useState<number | null>(null);
+  
   const isFirstRender = useRef(true);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Update internal state when props change (switching prompts)
-  useEffect(() => {
-    // When initialData changes (e.g. user selected a different prompt), 
-    // we need to reset everything and check for that new prompt's draft.
-    const newDraft = getDraft(initialData.id);
-    const newData = newDraft || initialData;
-    
-    setPrompt(newData);
-    setTagsInput(newData.tags.join(', '));
-    setSaveStatus(newDraft ? 'DRAFT_SAVED' : 'SAVED');
-    isFirstRender.current = true;
-  }, [initialData.id]); // Only reset if ID changes
-
-  // Also sync non-content properties if they change externally (like favorite status)
-  // but WITHOUT overwriting local edits to content
-  useEffect(() => {
-    if (initialData.id === prompt.id) {
-       setPrompt(prev => ({
-         ...prev,
-         isFavorite: initialData.isFavorite,
-         // We don't sync other fields to avoid overwriting user's unsaved work
-       }));
-    }
-  }, [initialData.isFavorite]);
 
   // Extract variables when template changes
   useEffect(() => {
@@ -80,7 +59,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     });
   }, [prompt.template]);
 
-  // Auto-save logic
+  // Auto-save logic (Debounced)
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
@@ -96,7 +75,7 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     autoSaveTimerRef.current = setTimeout(() => {
       saveDraft(prompt);
       setSaveStatus('DRAFT_SAVED');
-    }, 1000); // 1 second debounce
+    }, 1000); 
 
     return () => {
       if (autoSaveTimerRef.current) {
@@ -109,12 +88,9 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
     const cleanTags = tagsInput.split(/[,，]/).map(t => t.trim()).filter(Boolean);
     const updatedPrompt = { ...prompt, tags: cleanTags };
     
-    onSave(updatedPrompt); // Persist to main storage
-    removeDraft(updatedPrompt.id); // Clear draft
+    onSave(updatedPrompt); 
+    removeDraft(updatedPrompt.id); 
     setSaveStatus('SAVED');
-    
-    // Also update local state to match exactly what was saved
-    setPrompt(updatedPrompt);
   };
 
   const getFullPreviewText = () => {
@@ -130,45 +106,15 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const handleCopyFullPrompt = () => {
     const fullText = getFullPreviewText();
     navigator.clipboard.writeText(fullText);
-    
-    onMarkAsUsed(); // Track usage
-    
+    onMarkAsUsed();
     setCopyFeedback(true);
     setTimeout(() => setCopyFeedback(false), 2000);
   };
 
-  const handleRestoreVersion = (historyItem: Omit<PromptData, 'history'>) => {
-    if (confirm('确定要恢复到此版本吗？当前未保存的修改将作为新版本历史保存。')) {
-      // Restore keeps the current history array and current ID
-      const restoredPrompt: PromptData = {
-        ...historyItem,
-        id: prompt.id, // Ensure we keep the same ID
-        history: prompt.history, // Keep the history chain
-        isFavorite: prompt.isFavorite // Keep current favorite status
-      };
-      setPrompt(restoredPrompt);
-      setTagsInput(restoredPrompt.tags.join(', '));
-      setShowHistory(false);
-      // Trigger auto-save immediately to update draft
-      saveDraft(restoredPrompt);
-    }
-  };
-
-  const handleSaveAsNewVersion = (historyItem: Omit<PromptData, 'history'>) => {
-    if (confirm('确定要将此版本另存为新提示词吗？')) {
-      const newId = generateId();
-      const newPrompt: PromptData = {
-        ...historyItem,
-        id: newId,
-        title: `${historyItem.title} (副本)`,
-        history: [], // New prompt starts with clean history
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        isFavorite: false
-      };
-      onSave(newPrompt); // Save immediately
-      setShowHistory(false);
-    }
+  const handleCopyHistoryContent = (version: Omit<PromptData, 'history'>, index: number) => {
+    navigator.clipboard.writeText(version.template || '');
+    setHistoryCopyFeedbackId(index);
+    setTimeout(() => setHistoryCopyFeedbackId(null), 1500);
   };
 
   const getStatusText = () => {
@@ -470,23 +416,17 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
                       {version.template || "(空模板)"}
                     </div>
                     
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => handleRestoreVersion(version)}
-                        className="flex-1 py-2 px-3 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
-                      >
-                        <Icons.RotateCcw size={14} />
-                        恢复此版本
-                      </button>
-                      <button 
-                         onClick={() => handleSaveAsNewVersion(version)}
-                         className="py-2 px-3 bg-slate-50 text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
-                         title="另存为新提示词"
-                      >
-                        <Icons.GitFork size={14} />
-                        另存为新副本
-                      </button>
-                    </div>
+                    <button 
+                      onClick={() => handleCopyHistoryContent(version, index)}
+                      className={`w-full py-2 px-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                        historyCopyFeedbackId === index 
+                          ? 'bg-green-50 text-green-600' 
+                          : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                      }`}
+                    >
+                      {historyCopyFeedbackId === index ? <Icons.Check size={14} /> : <Icons.Copy size={14} />}
+                      {historyCopyFeedbackId === index ? '已复制到剪贴板' : '复制模板内容 (手动粘贴)'}
+                    </button>
                   </div>
                 ))
               )}
