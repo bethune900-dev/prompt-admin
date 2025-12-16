@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { PromptData } from '../types';
 import { Icons } from './Icon';
 
@@ -10,6 +10,8 @@ interface PromptListProps {
   onToggleFavorite: (prompt: PromptData) => void;
   onMarkAsUsed: (prompt: PromptData) => void;
   onDuplicatePrompt: (prompt: PromptData) => void;
+  isSortable?: boolean;
+  onReorder?: (newOrder: PromptData[]) => void;
 }
 
 const PromptList: React.FC<PromptListProps> = ({ 
@@ -19,10 +21,16 @@ const PromptList: React.FC<PromptListProps> = ({
   onDeletePrompt,
   onToggleFavorite,
   onMarkAsUsed,
-  onDuplicatePrompt
+  onDuplicatePrompt,
+  isSortable = false,
+  onReorder
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Drag and Drop Refs
+  const dragItem = useRef<number | null>(null);
+  const dragOverItem = useRef<number | null>(null);
 
   const filteredPrompts = prompts.filter(p => 
     p.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -65,11 +73,66 @@ const PromptList: React.FC<PromptListProps> = ({
     });
   };
 
+  const formatTime = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    const hour = date.getHours().toString().padStart(2, '0');
+    const minute = date.getMinutes().toString().padStart(2, '0');
+    return `${month}/${day} ${hour}:${minute}`;
+  };
+
+  // --- Drag and Drop Handlers ---
+  
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, position: number) => {
+    dragItem.current = position;
+    // Set transparent image or effect if desired
+    e.currentTarget.style.opacity = '0.4';
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>, position: number) => {
+    dragOverItem.current = position;
+  };
+
+  const handleDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
+    e.currentTarget.style.opacity = '1';
+    
+    if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
+      // Create a copy and reorder
+      const listCopy = [...filteredPrompts];
+      const draggedItemContent = listCopy[dragItem.current];
+      
+      listCopy.splice(dragItem.current, 1);
+      listCopy.splice(dragOverItem.current, 0, draggedItemContent);
+      
+      if (onReorder) {
+        onReorder(listCopy);
+      }
+    }
+    
+    dragItem.current = null;
+    dragOverItem.current = null;
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    // Essential to allow dropping
+    e.preventDefault();
+  };
+
   return (
     <div className="flex flex-col h-full overflow-hidden bg-slate-50">
       {/* Header */}
       <div className="h-16 border-b border-slate-200 bg-white px-6 flex items-center justify-between shrink-0">
-        <h2 className="text-xl font-bold text-slate-800">{filterName} <span className="text-slate-400 font-normal text-sm ml-2">({prompts.length})</span></h2>
+        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+          {filterName} 
+          <span className="text-slate-400 font-normal text-sm">({prompts.length})</span>
+          {isSortable && (
+            <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200 font-normal ml-2">
+              可拖拽排序
+            </span>
+          )}
+        </h2>
         <div className="relative">
           <Icons.Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input 
@@ -90,21 +153,34 @@ const PromptList: React.FC<PromptListProps> = ({
             <p>没有找到相关提示词</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredPrompts.map(prompt => (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredPrompts.map((prompt, index) => (
               <div 
                 key={prompt.id} 
+                draggable={isSortable && !searchTerm} // Only allow drag when sorting is active and NOT searching
+                onDragStart={(e) => isSortable && !searchTerm && handleDragStart(e, index)}
+                onDragEnter={(e) => isSortable && !searchTerm && handleDragEnter(e, index)}
+                onDragEnd={(e) => isSortable && !searchTerm && handleDragEnd(e)}
+                onDragOver={(e) => isSortable && !searchTerm && handleDragOver(e)}
                 onClick={() => onSelectPrompt(prompt)}
-                className="group bg-white rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-lg transition-all cursor-pointer flex flex-col h-56 relative"
+                className={`group bg-white rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-lg transition-all cursor-pointer flex flex-col h-60 relative ${isSortable && !searchTerm ? 'cursor-move active:cursor-grabbing' : ''}`}
               >
-                <div className="p-5 flex-1 overflow-hidden">
-                  <div className="flex justify-between items-start mb-2 gap-2">
-                    <h3 className="font-bold text-lg text-slate-800 truncate flex-1 pr-8">{prompt.title}</h3>
-                  </div>
-                  
-                  {/* Absolute positioned actions for cleaner layout */}
-                  <div className="absolute top-4 right-4 flex items-center gap-1">
-                     <button 
+                <div className="p-5 flex-1 overflow-hidden flex flex-col">
+                  <div className="flex justify-between items-start mb-2 gap-3">
+                    <h3 
+                      className="font-bold text-lg text-slate-800 line-clamp-2 leading-tight flex items-start gap-1" 
+                      title={prompt.title}
+                    >
+                      {/* Drag Handle Icon for visual cue */}
+                      {isSortable && !searchTerm && (
+                         <Icons.GripVertical size={16} className="text-slate-300 shrink-0 mt-1 cursor-grab active:cursor-grabbing" />
+                      )}
+                      {prompt.title}
+                    </h3>
+
+                    {/* Actions - Flex layout prevents overlap with title */}
+                    <div className="flex items-center gap-0.5 shrink-0 -mt-1 -mr-2 pl-1">
+                      <button 
                         onClick={(e) => handleFavoriteClick(e, prompt)}
                         className={`p-1.5 rounded-md transition-colors ${prompt.isFavorite ? 'text-yellow-400 hover:bg-yellow-50' : 'text-slate-300 hover:text-yellow-400 hover:bg-slate-100 opacity-0 group-hover:opacity-100'}`}
                         title={prompt.isFavorite ? "取消常用" : "设为常用"}
@@ -112,7 +188,7 @@ const PromptList: React.FC<PromptListProps> = ({
                         <Icons.Star size={18} fill={prompt.isFavorite ? "currentColor" : "none"} />
                       </button>
 
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button 
                           onClick={(e) => handleDuplicate(e, prompt)}
                           className="text-slate-400 hover:text-indigo-600 hover:bg-slate-100 p-1.5 rounded-md transition-colors"
@@ -136,19 +212,20 @@ const PromptList: React.FC<PromptListProps> = ({
                         >
                           <Icons.Trash2 size={16} />
                         </button>
+                      </div>
                     </div>
                   </div>
-
-                  <p className="text-sm text-slate-500 line-clamp-2 mb-4 h-10">
+                  
+                  <p className="text-sm text-slate-500 line-clamp-2 mb-3 h-10 shrink-0">
                     {prompt.description || "暂无描述..."}
                   </p>
                   
-                  <div className="text-xs font-mono bg-slate-50 p-2 rounded text-slate-600 line-clamp-2 border border-slate-100">
-                    {prompt.template.substring(0, 80)}...
+                  <div className="text-xs font-mono bg-slate-50 p-2 rounded text-slate-600 line-clamp-2 border border-slate-100 flex-1">
+                    {prompt.template.substring(0, 100)}...
                   </div>
                 </div>
 
-                <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 rounded-b-xl flex items-center justify-between">
+                <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 rounded-b-xl flex items-center justify-between shrink-0">
                   <div className="flex gap-2 overflow-hidden items-center">
                     {prompt.tags.length > 0 ? (
                        <>
@@ -167,14 +244,9 @@ const PromptList: React.FC<PromptListProps> = ({
                   </div>
                   
                   <div className="flex items-center gap-2">
-                    {prompt.lastUsedAt && (
-                      <span className="text-[10px] text-slate-400 flex items-center gap-1" title="上次使用时间">
-                         <Icons.Clock size={10} />
-                         {new Date(prompt.lastUsedAt).getMonth() + 1}/{new Date(prompt.lastUsedAt).getDate()}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold border-l border-slate-200 pl-2">
-                      {prompt.config.model.replace('gemini-', '').replace('-preview', '').replace('-001', '').split('-')[0]}
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1" title="最近修改">
+                       <Icons.Clock size={10} />
+                       {formatTime(prompt.updatedAt)}
                     </span>
                   </div>
                 </div>

@@ -27,7 +27,8 @@ import {
   Cloud,
   CloudOff,
   Database,
-  Hash
+  Hash,
+  GripVertical
 } from 'lucide-react';
 
 export const Icons = {
@@ -58,5 +59,6 @@ export const Icons = {
   Cloud,
   CloudOff,
   Database,
-  Hash
+  Hash,
+  GripVertical
 };

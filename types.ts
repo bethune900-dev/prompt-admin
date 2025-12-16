@@ -30,6 +30,7 @@ export interface PromptData {
   history: Omit<PromptData, 'history'>[]; // Stores past versions
   isFavorite: boolean;
   lastUsedAt?: number;
+  order?: number; // For manual sorting in Favorites
 }
 
 export type ViewState = 'LIST' | 'EDITOR';

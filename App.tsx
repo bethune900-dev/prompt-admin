@@ -131,7 +131,8 @@ const App: React.FC = () => {
       isFavorite: false, // Reset favorite
       lastUsedAt: undefined,
       tags: [...prompt.tags], // Shallow copy tags
-      config: { ...prompt.config } // Shallow copy config
+      config: { ...prompt.config }, // Shallow copy config
+      order: undefined // Reset order
     };
 
     const newPrompts = [newPrompt, ...prompts];
@@ -157,6 +158,25 @@ const App: React.FC = () => {
       }
       updatePromptsState(newPrompts);
     }
+  };
+
+  // Logic to handle reordering from the UI (drag and drop)
+  const handleReorderPrompts = (reorderedSubset: PromptData[]) => {
+    // Create a map of IDs to their new index (order)
+    const orderMap = new Map<string, number>();
+    reorderedSubset.forEach((p, index) => {
+      orderMap.set(p.id, index);
+    });
+
+    // Merge the new order into the master prompt list
+    const newPrompts = prompts.map(p => {
+      if (orderMap.has(p.id)) {
+        return { ...p, order: orderMap.get(p.id) };
+      }
+      return p;
+    });
+
+    updatePromptsState(newPrompts);
   };
 
   const handleGoHome = () => {
@@ -223,14 +243,31 @@ const App: React.FC = () => {
   }, [prompts]);
 
   const filteredPrompts = useMemo(() => {
-    let filtered = prompts;
+    let filtered = [...prompts]; // Clone first to safely sort
+    
     if (currentFilter === 'FAVORITES') {
-      filtered = prompts.filter(p => p.isFavorite);
+      filtered = filtered.filter(p => p.isFavorite);
+      // Sort favorites by manual order first, then by updated time
+      filtered.sort((a, b) => {
+        const orderA = a.order ?? Number.MAX_SAFE_INTEGER;
+        const orderB = b.order ?? Number.MAX_SAFE_INTEGER;
+        
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+        return b.updatedAt - a.updatedAt;
+      });
     } else if (currentFilter === 'RECENT') {
-      filtered = [...prompts].sort((a, b) => (b.lastUsedAt || 0) - (a.lastUsedAt || 0));
+      filtered.sort((a, b) => (b.lastUsedAt || 0) - (a.lastUsedAt || 0));
     } else if (currentFilter === 'TAG' && selectedTag) {
-      filtered = prompts.filter(p => p.tags.includes(selectedTag));
+      filtered = filtered.filter(p => p.tags.includes(selectedTag));
+      // Keep default sort (by creation or whatever prompts state is) or sort by updated
+      filtered.sort((a, b) => b.updatedAt - a.updatedAt);
+    } else {
+      // ALL: Default sort by updatedAt
+      filtered.sort((a, b) => b.updatedAt - a.updatedAt);
     }
+    
     return filtered;
   }, [prompts, currentFilter, selectedTag]);
 
@@ -278,6 +315,8 @@ const App: React.FC = () => {
             onToggleFavorite={handleToggleFavorite}
             onMarkAsUsed={handleMarkAsUsed}
             onDuplicatePrompt={handleDuplicatePrompt}
+            isSortable={currentFilter === 'FAVORITES'}
+            onReorder={handleReorderPrompts}
           />
         )}
         
