@@ -1,0 +1,5 @@
+{
+  "name": "灵感提示词 (PromptMaster)",
+  "description": "一个优雅的中文提示词管理与测试工作台，集成 Gemini API，支持提示词的版本管理、变量填充与实时调试。",
+  "requestFramePermissions": []
+}
