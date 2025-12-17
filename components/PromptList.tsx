@@ -14,6 +14,24 @@ interface PromptListProps {
   onReorder?: (newOrder: PromptData[]) => void;
 }
 
+const getTagStyle = (tag: string) => {
+  const styles = [
+    'bg-blue-50 text-blue-700 border-blue-200',
+    'bg-emerald-50 text-emerald-700 border-emerald-200',
+    'bg-amber-50 text-amber-700 border-amber-200',
+    'bg-purple-50 text-purple-700 border-purple-200',
+    'bg-rose-50 text-rose-700 border-rose-200',
+    'bg-cyan-50 text-cyan-700 border-cyan-200',
+    'bg-indigo-50 text-indigo-700 border-indigo-200',
+    'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200',
+  ];
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) {
+    hash = tag.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return styles[Math.abs(hash) % styles.length];
+};
+
 const PromptList: React.FC<PromptListProps> = ({ 
   prompts, 
   filterName,
@@ -163,23 +181,25 @@ const PromptList: React.FC<PromptListProps> = ({
                 onDragEnd={(e) => isSortable && !searchTerm && handleDragEnd(e)}
                 onDragOver={(e) => isSortable && !searchTerm && handleDragOver(e)}
                 onClick={() => onSelectPrompt(prompt)}
-                className={`group bg-white rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-lg transition-all cursor-pointer flex flex-col h-60 relative ${isSortable && !searchTerm ? 'cursor-move active:cursor-grabbing' : ''}`}
+                className={`group bg-white rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-lg transition-all cursor-pointer flex flex-col h-48 relative ${isSortable && !searchTerm ? 'cursor-move active:cursor-grabbing' : ''}`}
               >
                 <div className="p-5 flex-1 overflow-hidden flex flex-col">
-                  <div className="flex justify-between items-start mb-2 gap-3">
-                    <h3 
-                      className="font-bold text-lg text-slate-800 line-clamp-2 leading-tight flex items-start gap-1" 
-                      title={prompt.title}
-                    >
-                      {/* Drag Handle Icon for visual cue */}
+                  <div className="flex justify-between items-start gap-3 mb-2">
+                    {/* Title & Grip Container */}
+                    <div className="flex items-start gap-2 min-w-0 flex-1">
                       {isSortable && !searchTerm && (
-                         <Icons.GripVertical size={16} className="text-slate-300 shrink-0 mt-1 cursor-grab active:cursor-grabbing" />
+                         <Icons.GripVertical size={18} className="text-slate-300 shrink-0 mt-0.5 cursor-grab active:cursor-grabbing" />
                       )}
-                      {prompt.title}
-                    </h3>
+                      <h3 
+                        className="font-bold text-lg text-slate-800 leading-tight break-words line-clamp-2" 
+                        title={prompt.title}
+                      >
+                        {prompt.title}
+                      </h3>
+                    </div>
 
-                    {/* Actions - Flex layout prevents overlap with title */}
-                    <div className="flex items-center gap-0.5 shrink-0 -mt-1 -mr-2 pl-1">
+                    {/* Actions Container */}
+                    <div className="flex items-center gap-0.5 shrink-0 pl-1">
                       <button 
                         onClick={(e) => handleFavoriteClick(e, prompt)}
                         className={`p-1.5 rounded-md transition-colors ${prompt.isFavorite ? 'text-yellow-400 hover:bg-yellow-50' : 'text-slate-300 hover:text-yellow-400 hover:bg-slate-100 opacity-0 group-hover:opacity-100'}`}
@@ -216,36 +236,38 @@ const PromptList: React.FC<PromptListProps> = ({
                     </div>
                   </div>
                   
-                  <p className="text-sm text-slate-500 line-clamp-2 mb-3 h-10 shrink-0">
+                  <p className="text-sm text-slate-500 line-clamp-3 flex-1 break-words">
                     {prompt.description || "暂无描述..."}
                   </p>
                   
-                  <div className="text-xs font-mono bg-slate-50 p-2 rounded text-slate-600 line-clamp-2 border border-slate-100 flex-1">
-                    {prompt.template.substring(0, 100)}...
-                  </div>
                 </div>
 
-                <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 rounded-b-xl flex items-center justify-between shrink-0">
-                  <div className="flex gap-2 overflow-hidden items-center">
+                <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/30 rounded-b-xl flex items-center justify-between shrink-0 gap-3">
+                  <div className="flex gap-1.5 overflow-hidden items-center flex-1 min-w-0">
                     {prompt.tags.length > 0 ? (
                        <>
-                        {prompt.tags.slice(0, 2).map(tag => (
-                          <span key={tag} className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">
+                        {prompt.tags.slice(0, 3).map(tag => (
+                          <span 
+                            key={tag} 
+                            className={`text-[10px] px-2.5 py-0.5 rounded-full font-medium whitespace-nowrap border shadow-sm ${getTagStyle(tag)}`}
+                          >
                             {tag}
                           </span>
                         ))}
-                        {prompt.tags.length > 2 && (
-                          <span className="text-xs text-slate-400 px-1 py-0.5">+ {prompt.tags.length - 2}</span>
+                        {prompt.tags.length > 3 && (
+                          <span className="text-[10px] text-slate-500 font-medium px-1.5 py-0.5 bg-slate-100 rounded-full border border-slate-200 shrink-0">
+                            +{prompt.tags.length - 3}
+                          </span>
                         )}
                        </>
                     ) : (
-                      <span className="text-[10px] text-slate-400">{formatDate(prompt.createdAt)}</span>
+                      <span className="text-[10px] text-slate-400 font-medium ml-1">{formatDate(prompt.createdAt)}</span>
                     )}
                   </div>
                   
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-400 flex items-center gap-1" title="最近修改">
-                       <Icons.Clock size={10} />
+                  <div className="flex items-center gap-1 shrink-0">
+                     <Icons.Clock size={12} className="text-slate-300" />
+                     <span className="text-[10px] text-slate-400 font-medium">
                        {formatTime(prompt.updatedAt)}
                     </span>
                   </div>

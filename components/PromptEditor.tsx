@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { PromptData, ModelType } from '../types';
+import { PromptData } from '../types';
 import { Icons } from './Icon';
 import { extractVariables, fillTemplate } from '../services/geminiService';
 import { saveDraft, getDraft, removeDraft } from '../services/storageService';
-import { DEFAULT_CONFIG } from '../constants';
 
 interface PromptEditorProps {
   initialData: PromptData;
@@ -33,7 +32,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   const [variables, setVariables] = useState<string[]>([]);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<'EDIT' | 'PREVIEW'>('EDIT');
-  const [showConfig, setShowConfig] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [tagsInput, setTagsInput] = useState(prompt.tags.join(', '));
   const [copyFeedback, setCopyFeedback] = useState(false);
@@ -168,14 +166,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
             <Icons.History size={20} />
           </button>
 
-          <button 
-            onClick={() => setShowConfig(!showConfig)}
-            className={`p-2 rounded-lg transition-colors ${showConfig ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}
-            title="模型配置"
-          >
-            <Icons.Settings size={20} />
-          </button>
-
           <div className="h-6 w-px bg-slate-200 mx-1"></div>
 
            <button 
@@ -207,60 +197,6 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
         <div className={`flex-1 flex flex-col h-full overflow-y-auto border-r border-slate-200 bg-white ${activeTab === 'PREVIEW' ? 'hidden md:flex' : 'flex'}`}>
           <div className="p-6 max-w-3xl mx-auto w-full space-y-6">
             
-            {/* Model Config Panel (Collapsible) */}
-            {showConfig && (
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-4 animate-in slide-in-from-top-2 duration-200">
-                <div className="flex justify-between items-center">
-                  <h4 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
-                    <Icons.Settings size={14} /> 模型配置
-                  </h4>
-                  <button onClick={() => setShowConfig(false)} className="text-slate-400 hover:text-slate-600"><Icons.X size={14} /></button>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">模型 (Model)</label>
-                    <div className="flex gap-2">
-                      <input 
-                        type="text"
-                        value={prompt.config.model}
-                        onChange={(e) => setPrompt({...prompt, config: {...prompt.config, model: e.target.value}})}
-                        className="flex-1 text-sm p-2 border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                        placeholder="输入模型名称..."
-                      />
-                      <select 
-                        onChange={(e) => {
-                          if (e.target.value) {
-                             setPrompt({...prompt, config: {...prompt.config, model: e.target.value}});
-                          }
-                        }}
-                        value=""
-                        className="w-8 text-sm p-2 border border-slate-200 rounded-lg bg-slate-50 focus:ring-2 focus:ring-indigo-500 outline-none text-transparent"
-                        title="选择预设模型"
-                        style={{ backgroundImage: 'none' }} 
-                      >
-                        <option value="" disabled>Presets</option>
-                        <option value={ModelType.FLASH}>Gemini 2.5 Flash</option>
-                        <option value={ModelType.PRO}>Gemini 3.0 Pro</option>
-                        <option value="gemini-2.0-flash-thinking-exp-1219">Thinking (Exp)</option>
-                      </select>
-                      <div className="pointer-events-none absolute ml-[calc(100%-2.5rem)] mt-2.5 text-slate-400">
-                        <Icons.ChevronLeft size={14} className="-rotate-90" />
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">温度 (Temperature): {prompt.config.temperature}</label>
-                    <input 
-                      type="range" min="0" max="2" step="0.1"
-                      value={prompt.config.temperature}
-                      onChange={(e) => setPrompt({...prompt, config: {...prompt.config, temperature: parseFloat(e.target.value)}})}
-                      className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">系统指令 (System Instruction)</label>
               <textarea 
