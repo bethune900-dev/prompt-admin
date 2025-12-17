@@ -208,7 +208,11 @@ const App: React.FC = () => {
   };
 
   const handleImport = async (file: File) => {
-    if (!confirm('导入将覆盖现有数据。继续吗？')) {
+    const warningMessage = isCloudEnabled
+      ? '【严重警告】\n\n您即将导入备份文件。\n此操作将「强制覆盖」云端数据库及本地的所有现有提示词！\n\n一旦替换，原有的云端数据将永久丢失无法找回。\n\n是否确认要替换云端数据库？'
+      : '警告：导入将覆盖本地所有现有数据。此操作无法撤销。继续吗？';
+
+    if (!confirm(warningMessage)) {
       return;
     }
 
@@ -224,8 +228,29 @@ const App: React.FC = () => {
       // Ensure basic validity
       const validPrompts = importedPrompts.filter(p => p.id && p.template);
       
-      updatePromptsState(validPrompts);
-      alert(`成功导入 ${validPrompts.length} 个提示词！`);
+      if (isCloudEnabled) {
+        setIsSyncing(true);
+        try {
+          // Explicitly wait for cloud upload to succeed before considering it done
+          await api.uploadData(validPrompts);
+          
+          // Then update local
+          setPrompts(validPrompts);
+          localStore.saveAllPrompts(validPrompts);
+          
+          alert(`恢复成功！\n\n云端数据库已强制替换，共导入 ${validPrompts.length} 个提示词。`);
+        } catch (e) {
+          console.error("Cloud import failed", e);
+          alert('云端同步失败，仅恢复了本地数据。请检查网络连接。');
+          setPrompts(validPrompts);
+          localStore.saveAllPrompts(validPrompts);
+        } finally {
+          setIsSyncing(false);
+        }
+      } else {
+        updatePromptsState(validPrompts);
+        alert(`成功导入 ${validPrompts.length} 个提示词！`);
+      }
     } catch (error) {
       console.error('Import failed', error);
       alert('导入失败：文件无法解析或格式不正确。');
@@ -297,11 +322,11 @@ const App: React.FC = () => {
       />
       
       <main className="flex-1 h-full overflow-hidden relative">
-        {isSyncing && prompts.length === 0 && (
-           <div className="absolute inset-0 z-50 bg-white/50 flex items-center justify-center">
-             <div className="flex flex-col items-center gap-2">
-               <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-               <span className="text-xs text-indigo-600 font-medium">同步云端数据...</span>
+        {isSyncing && (
+           <div className="absolute inset-0 z-50 bg-white/50 flex items-center justify-center backdrop-blur-[2px]">
+             <div className="flex flex-col items-center gap-3 bg-white p-6 rounded-xl shadow-xl border border-indigo-100">
+               <div className="w-8 h-8 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+               <span className="text-sm text-indigo-700 font-semibold">正在同步云端数据...</span>
              </div>
            </div>
         )}
